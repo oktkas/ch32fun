@@ -35,6 +35,7 @@ int DefaultConfigureReadProtection( void * dev, int one_if_yes_protect );
 void TestFunction(void * v );
 static void readCSR( void * dev, uint32_t csr );
 static int DefaultRebootIntoBootloader( void * dev );
+static int PowerCycleAndHalt( void * dev );
 struct MiniChlinkFunctions MCF;
 
 void * MiniCHLinkInitAsDLL( struct MiniChlinkFunctions ** MCFO, const init_hints_t* init_hints )
@@ -218,7 +219,8 @@ int main( int argc, char ** argv )
 		(argc > first && argv[first][0] == '-' && argv[first][1] == 'h' ) |
 		(argc > first && argv[first][0] == '-' && argv[first][1] == 't' ) |
 		(argc > first && argv[first][0] == '-' && argv[first][1] == 'f' ) |
-		(argc > first && argv[first][0] == '-' && argv[first][1] == 'X' );
+		(argc > first && argv[first][0] == '-' && argv[first][1] == 'X' ) |
+		(argc > first && argv[first][0] == '-' && argv[first][1] == 'H' );
 
 	if( !skip_startup && MCF.SetupInterface )
 	{
@@ -307,10 +309,16 @@ keep_going:
 				}
 				break;
 			case 'u':
-				if( MCF.Unbrick )
+				if( MCF.Unbrick && MCF.Control3v3 )
 					MCF.Unbrick( dev );
 				else
 					goto unimplemented;
+				break;
+			case 'H':
+				if( !MCF.Control3v3 )
+					goto unimplemented;
+				if( PowerCycleAndHalt( dev ) )
+					return -9;
 				break;
 			case 'U':
 				// Unlock Bootloader
@@ -1079,6 +1087,7 @@ help:
 	fprintf( stderr, " -C [specified programmer, eg. b003boot, ardulink, esp32s2chfun, funprog, isp, linke]\n" );
 	fprintf( stderr, " -l [programmer USB serial; omit for default device selection]\n" );
 	fprintf( stderr, " -u Clear all code flash - by power off (also can unbrick)\n" );
+	fprintf( stderr, " -H Power-cycle the target and halt it at boot, without erasing\n" );
 	fprintf( stderr, " -a Reboot into Halt\n" );
 	fprintf( stderr, " -A Go into Halt without reboot\n" );
 	fprintf( stderr, " -b Reboot out of Halt\n" );
@@ -3214,9 +3223,10 @@ int DefaultPollTerminal( void * dev, uint8_t * buffer, int maxlen, uint32_t leav
 	}
 }
 
-int DefaultUnbrick( void * dev )
+// Power-cycle the target and halt it as soon as its debug module answers,
+// before its firmware can disable the debug pin or go to sleep.
+static int PowerCycleAndHalt( void * dev )
 {
-	printf( "Entering Unbrick Mode\n" );
 	if( MCF.Control5v ) MCF.Control5v( dev, 0 );
 	MCF.Control3v3( dev, 0 );
 
@@ -3279,7 +3289,13 @@ int DefaultUnbrick( void * dev )
 	int r = MCF.ReadReg32( dev, DMSTATUS, &ds );
 	printf( "DMStatus After Halt: /%d/%08x\n", r, ds );
 
-	r = DefaultDetermineChipType( dev );
+	return DefaultDetermineChipType( dev );
+}
+
+int DefaultUnbrick( void * dev )
+{
+	printf( "Entering Unbrick Mode\n" );
+	int r = PowerCycleAndHalt( dev );
 	if( r ) return r;
 	struct InternalState * iss = (struct InternalState*)(((struct ProgrammerStructBase*)dev)->internal);
 	printf( "Chip Type: %s\n", iss->target_chip->name_str );
