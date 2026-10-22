@@ -20,6 +20,7 @@ Usage: minichlink [args]
  -t Disable 3.3V
  -f Disable 5V
  -u Clear all code flash - by power off (also can unbrick)
+ -H Power-cycle the target and halt it at boot, without erasing
  -b Reboot out of Halt
  -e Resume from halt
  -a Place into Halt
