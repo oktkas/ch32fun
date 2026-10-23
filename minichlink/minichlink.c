@@ -35,6 +35,7 @@ int DefaultConfigureReadProtection( void * dev, int one_if_yes_protect );
 void TestFunction(void * v );
 static void readCSR( void * dev, uint32_t csr );
 static int DefaultRebootIntoBootloader( void * dev );
+static int PowerCycleAndHalt( void * dev );
 struct MiniChlinkFunctions MCF;
 
 void * MiniCHLinkInitAsDLL( struct MiniChlinkFunctions ** MCFO, const init_hints_t* init_hints )
@@ -204,15 +205,22 @@ int main( int argc, char ** argv )
 	int status;
 	int must_be_end = 0;
 
+	// Skip the programmer selection (-c, -C, -l and their values) to find the first command.
+	int first = 1;
+	while( first + 1 < argc && ( strncmp( argv[first], "-c", 2 ) == 0 ||
+		strncmp( argv[first], "-C", 2 ) == 0 || strncmp( argv[first], "-l", 2 ) == 0 ) )
+		first += 2;
+
 	int skip_startup = 
-		(argc > 1 && argv[1][0] == '-' && argv[1][1] == 'k' ) |
-		(argc > 1 && argv[1][0] == '-' && argv[1][1] == 'e' ) |
-		(argc > 1 && argv[1][0] == '-' && argv[1][1] == 'A' ) |
-		(argc > 1 && argv[1][0] == '-' && argv[1][1] == 'u' ) |
-		(argc > 1 && argv[1][0] == '-' && argv[1][1] == 'h' ) |
-		(argc > 1 && argv[1][0] == '-' && argv[1][1] == 't' ) |
-		(argc > 1 && argv[1][0] == '-' && argv[1][1] == 'f' ) |
-		(argc > 1 && argv[1][0] == '-' && argv[1][1] == 'X' );
+		(argc > first && argv[first][0] == '-' && argv[first][1] == 'k' ) |
+		(argc > first && argv[first][0] == '-' && argv[first][1] == 'e' ) |
+		(argc > first && argv[first][0] == '-' && argv[first][1] == 'A' ) |
+		(argc > first && argv[first][0] == '-' && argv[first][1] == 'u' ) |
+		(argc > first && argv[first][0] == '-' && argv[first][1] == 'h' ) |
+		(argc > first && argv[first][0] == '-' && argv[first][1] == 't' ) |
+		(argc > first && argv[first][0] == '-' && argv[first][1] == 'f' ) |
+		(argc > first && argv[first][0] == '-' && argv[first][1] == 'X' ) |
+		(argc > first && argv[first][0] == '-' && argv[first][1] == 'H' );
 
 	if( !skip_startup && MCF.SetupInterface )
 	{
@@ -305,6 +313,10 @@ keep_going:
 					MCF.Unbrick( dev );
 				else
 					goto unimplemented;
+				break;
+			case 'H':
+				if( PowerCycleAndHalt( dev ) )
+					return -9;
 				break;
 			case 'U':
 				// Unlock Bootloader
@@ -1100,6 +1112,7 @@ help:
 	fprintf( stderr, " -C [specified programmer, eg. b003boot, ardulink, esp32s2chfun, funprog, isp, linke]\n" );
 	fprintf( stderr, " -l [programmer USB serial; omit for default device selection]\n" );
 	fprintf( stderr, " -u Clear all code flash - by power off (also can unbrick)\n" );
+	fprintf( stderr, " -H Power-cycle the target and halt it at boot, without erasing\n" );
 	fprintf( stderr, " -a Reboot into Halt\n" );
 	fprintf( stderr, " -A Go into Halt without reboot\n" );
 	fprintf( stderr, " -b Reboot out of Halt\n" );
@@ -3236,9 +3249,15 @@ int DefaultPollTerminal( void * dev, uint8_t * buffer, int maxlen, uint32_t leav
 	}
 }
 
-int DefaultUnbrick( void * dev )
+// Power-cycle the target and halt it as soon as its debug module answers,
+// before its firmware can disable the debug pin or go to sleep.
+static int PowerCycleAndHalt( void * dev )
 {
-	printf( "Entering Unbrick Mode\n" );
+	if( !MCF.Control3v3 )
+	{
+		fprintf( stderr, "Error: This programmer cannot switch target power\n" );
+		return -1;
+	}
 	if( MCF.Control5v ) MCF.Control5v( dev, 0 );
 	MCF.Control3v3( dev, 0 );
 
@@ -3301,7 +3320,13 @@ int DefaultUnbrick( void * dev )
 	int r = MCF.ReadReg32( dev, DMSTATUS, &ds );
 	printf( "DMStatus After Halt: /%d/%08x\n", r, ds );
 
-	r = DefaultDetermineChipType( dev );
+	return DefaultDetermineChipType( dev );
+}
+
+int DefaultUnbrick( void * dev )
+{
+	printf( "Entering Unbrick Mode\n" );
+	int r = PowerCycleAndHalt( dev );
 	if( r ) return r;
 	struct InternalState * iss = (struct InternalState*)(((struct ProgrammerStructBase*)dev)->internal);
 	printf( "Chip Type: %s\n", iss->target_chip->name_str );
