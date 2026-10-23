@@ -1587,7 +1587,9 @@ void * TryInit_ESP32S2CHFUN(uint32_t id)
 		}
 		fprintf( stderr, "Found %s\n", programmer_name_string[eps->programmer_type] );
 		printf( "Programmer firmware version %d.%02d-%04x\n", (uint8_t)(eps->dev_version >> 8), (uint8_t)eps->dev_version&0xff, eps->capabilities );
-		if( (uint16_t)(((uint8_t)(eps->dev_version >> 8) * 100) + (uint8_t)(eps->dev_version&0xff)) < (uint16_t)CURRENT_VERSION )
+		// CURRENT_VERSION is the ESP32-S2 programmer's firmware version.
+		if( eps->programmer_type == PROGRAMMER_TYPE_ESP32S2 &&
+			(uint16_t)(((uint8_t)(eps->dev_version >> 8) * 100) + (uint8_t)(eps->dev_version&0xff)) < (uint16_t)CURRENT_VERSION )
 		{
 			printf( "There is newer version of programmer firmware available - v.%d.%d\n", CURRENT_VERSION/100, CURRENT_VERSION%100 );
 		}
